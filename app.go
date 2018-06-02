@@ -13,20 +13,20 @@ import (
 	"sync"
 )
 
-var _ pub.Application = &App{}
-var _ pub.SocialAPI = &App{}
-var _ pub.FederateAPI = &App{}
-var _ pub.SocialApplication = &App{}
-var _ pub.FederateApplication = &App{}
-var _ pub.SocialFederateApplication = &App{}
+var _ pub.Application = &app{}
+var _ pub.SocialAPI = &app{}
+var _ pub.FederateAPI = &app{}
+var _ pub.SocialApplication = &app{}
+var _ pub.FederateApplication = &app{}
+var _ pub.SocialFederateApplication = &app{}
 
 type lockObj struct {
 	obj pub.PubObject
 	mu  *sync.RWMutex
 }
 
-// App shows the basic mechanics for a single-user, non-permanent, dummy server.
-type App struct {
+// app shows the basic mechanics for a single-user, non-permanent, dummy server.
+type app struct {
 	scheme    string
 	host      string
 	newPath   string
@@ -41,10 +41,11 @@ type App struct {
 	idMu      *sync.Mutex
 	pubKey    crypto.PublicKey
 	privKey   crypto.PrivateKey
+	verifier  pub.SocialAPIVerifier
 }
 
-func NewApp(scheme, host, newPath string, actorURL, inboxURL, outboxURL *url.URL, pubKey crypto.PublicKey, privKey crypto.PrivateKey, actor *vocab.Object) *App {
-	return &App{
+func newApp(scheme, host, newPath string, actorURL, inboxURL, outboxURL *url.URL, pubKey crypto.PublicKey, privKey crypto.PrivateKey, actor *vocab.Object, verifier pub.SocialAPIVerifier) *app {
+	return &app{
 		scheme:    scheme,
 		host:      host,
 		newPath:   newPath,
@@ -59,14 +60,15 @@ func NewApp(scheme, host, newPath string, actorURL, inboxURL, outboxURL *url.URL
 		idMu:      &sync.Mutex{},
 		pubKey:    pubKey,
 		privKey:   privKey,
+		verifier:  verifier,
 	}
 }
 
-func (a *App) Owns(c context.Context, id *url.URL) bool {
+func (a *app) Owns(c context.Context, id *url.URL) bool {
 	return id.Host == a.host
 }
 
-func (a *App) Get(c context.Context, id *url.URL, rw pub.RWType) (pub.PubObject, error) {
+func (a *app) Get(c context.Context, id *url.URL, rw pub.RWType) (pub.PubObject, error) {
 	has, err := a.Has(c, id)
 	if err != nil {
 		return nil, err
@@ -98,16 +100,16 @@ func (a *App) Get(c context.Context, id *url.URL, rw pub.RWType) (pub.PubObject,
 	return p.obj, nil
 }
 
-func (a *App) GetAsVerifiedUser(c context.Context, id, authdUser *url.URL, rw pub.RWType) (pub.PubObject, error) {
+func (a *app) GetAsVerifiedUser(c context.Context, id, authdUser *url.URL, rw pub.RWType) (pub.PubObject, error) {
 	return a.Get(c, id, rw)
 }
 
-func (a *App) Has(c context.Context, id *url.URL) (bool, error) {
+func (a *app) Has(c context.Context, id *url.URL) (bool, error) {
 	_, ok := a.db[id.String()]
 	return ok, nil
 }
 
-func (a *App) Set(c context.Context, o pub.PubObject) error {
+func (a *app) Set(c context.Context, o pub.PubObject) error {
 	if id := o.GetId(); id == nil {
 		return fmt.Errorf("id is nil")
 	} else if *id == *a.outboxURL {
@@ -139,7 +141,7 @@ func (a *App) Set(c context.Context, o pub.PubObject) error {
 	}
 }
 
-func (a *App) GetInbox(c context.Context, r *http.Request, rw pub.RWType) (vocab.OrderedCollectionType, error) {
+func (a *app) GetInbox(c context.Context, r *http.Request, rw pub.RWType) (vocab.OrderedCollectionType, error) {
 	if *r.URL == *a.inboxURL {
 		a.actorMu.RLock()
 		defer a.actorMu.RUnlock()
@@ -148,7 +150,7 @@ func (a *App) GetInbox(c context.Context, r *http.Request, rw pub.RWType) (vocab
 	return nil, fmt.Errorf("no inbox for url %s", r.URL)
 }
 
-func (a *App) GetOutbox(c context.Context, r *http.Request, rw pub.RWType) (vocab.OrderedCollectionType, error) {
+func (a *app) GetOutbox(c context.Context, r *http.Request, rw pub.RWType) (vocab.OrderedCollectionType, error) {
 	if *r.URL == *a.outboxURL {
 		a.actorMu.RLock()
 		defer a.actorMu.RUnlock()
@@ -157,7 +159,7 @@ func (a *App) GetOutbox(c context.Context, r *http.Request, rw pub.RWType) (voca
 	return nil, fmt.Errorf("no outbox for url %s", r.URL)
 }
 
-func (a *App) NewId(c context.Context, t pub.Typer) *url.URL {
+func (a *app) NewId(c context.Context, t pub.Typer) *url.URL {
 	a.idMu.Lock()
 	id := a.id
 	a.id++
@@ -173,31 +175,30 @@ func (a *App) NewId(c context.Context, t pub.Typer) *url.URL {
 	}
 }
 
-func (a *App) GetPublicKey(c context.Context, publicKeyId string) (pubKey crypto.PublicKey, algo httpsig.Algorithm, user *url.URL, err error) {
+func (a *app) GetPublicKey(c context.Context, publicKeyId string) (pubKey crypto.PublicKey, algo httpsig.Algorithm, user *url.URL, err error) {
 	return nil, httpsig.RSA_SHA256, nil, fmt.Errorf("not implemented: GetPublicKey")
 }
 
-func (a *App) CanAdd(c context.Context, o vocab.ObjectType, t vocab.ObjectType) bool {
+func (a *app) CanAdd(c context.Context, o vocab.ObjectType, t vocab.ObjectType) bool {
 	return true
 }
 
-func (a *App) CanRemove(c context.Context, o vocab.ObjectType, t vocab.ObjectType) bool {
+func (a *app) CanRemove(c context.Context, o vocab.ObjectType, t vocab.ObjectType) bool {
 	return true
 }
 
-func (a *App) ActorIRI(c context.Context, r *http.Request) (*url.URL, error) {
+func (a *app) ActorIRI(c context.Context, r *http.Request) (*url.URL, error) {
 	if *r.URL == *a.inboxURL || *r.URL == *a.outboxURL {
 		return a.actorURL, nil
 	}
 	return nil, fmt.Errorf("no actor for url %s", r.URL)
 }
 
-func (a *App) GetSocialAPIVerifier(c context.Context) pub.SocialAPIVerifier {
-	// TODO: OAuth 2
-	return nil
+func (a *app) GetSocialAPIVerifier(c context.Context) pub.SocialAPIVerifier {
+	return a.verifier
 }
 
-func (a *App) GetPublicKeyForOutbox(c context.Context, publicKeyId string, boxIRI *url.URL) (crypto.PublicKey, httpsig.Algorithm, error) {
+func (a *app) GetPublicKeyForOutbox(c context.Context, publicKeyId string, boxIRI *url.URL) (crypto.PublicKey, httpsig.Algorithm, error) {
 	if boxIRI != a.outboxURL {
 		return nil, httpsig.RSA_SHA256, fmt.Errorf("unknown outbox url %s", boxIRI)
 	} else if publicKeyId != a.actorURL.String() {
@@ -206,25 +207,25 @@ func (a *App) GetPublicKeyForOutbox(c context.Context, publicKeyId string, boxIR
 	return a.pubKey, httpsig.RSA_SHA256, nil
 }
 
-func (a *App) OnFollow(c context.Context, s *streams.Follow) pub.FollowResponse {
+func (a *app) OnFollow(c context.Context, s *streams.Follow) pub.FollowResponse {
 	return pub.AutomaticAccept
 }
 
-func (a *App) Unblocked(c context.Context, actorIRIs []*url.URL) error {
+func (a *app) Unblocked(c context.Context, actorIRIs []*url.URL) error {
 	return nil
 }
 
-func (a *App) FilterForwarding(c context.Context, activity vocab.ActivityType, iris []*url.URL) ([]*url.URL, error) {
+func (a *app) FilterForwarding(c context.Context, activity vocab.ActivityType, iris []*url.URL) ([]*url.URL, error) {
 	// Do NOT do this in real implementations. This turns the server into a
 	// spambot. See the documentation in go-fed/activity/pub.
 	return iris, nil
 }
 
-func (a *App) NewSigner() (httpsig.Signer, error) {
+func (a *app) NewSigner() (httpsig.Signer, error) {
 	s, _, err := httpsig.NewSigner([]httpsig.Algorithm{httpsig.RSA_SHA256}, nil, httpsig.Signature)
 	return s, err
 }
 
-func (a *App) PrivateKey(boxIRI *url.URL) (privKey crypto.PrivateKey, pubKeyId string, err error) {
+func (a *app) PrivateKey(boxIRI *url.URL) (privKey crypto.PrivateKey, pubKeyId string, err error) {
 	return a.privKey, a.actorURL.String(), nil
 }

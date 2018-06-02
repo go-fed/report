@@ -5,12 +5,12 @@ import (
 	"time"
 )
 
-var _ pub.Clock = &LocalClock{}
+var _ pub.Clock = &localClock{}
 
 // Uses time.Now directly. Implementations may use clocks configurable to a
 // specific time zone, etc.
-type LocalClock struct{}
+type localClock struct{}
 
-func (l *LocalClock) Now() time.Time {
+func (l *localClock) Now() time.Time {
 	return time.Now()
 }
