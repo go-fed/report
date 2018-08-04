@@ -13,6 +13,7 @@ var _ pub.Deliverer = &syncDeliverer{}
 type syncDeliverer struct{}
 
 func (s *syncDeliverer) Do(b []byte, to *url.URL, toDo func(b []byte, u *url.URL) error) {
+	log.Printf("Delivering to: %s", to)
 	err := toDo(b, to)
 	if err != nil {
 		log.Print(err)
